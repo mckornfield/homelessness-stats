@@ -1,8 +1,43 @@
 """Generate a combined HTML report from all executed notebooks."""
 
+import base64
 import json
+import struct
 import uuid
 from pathlib import Path
+
+# Plotly 6.x serializes numeric arrays as base64-encoded binary (bdata/dtype).
+# Plotly.js in the browser cannot decode this format, so we convert back to
+# plain lists here before writing the HTML.
+_DTYPE_FMT = {
+    "f8": ("d", 8),
+    "f4": ("f", 4),
+    "i4": ("i", 4),
+    "i2": ("h", 2),
+    "i1": ("b", 1),
+    "u4": ("I", 4),
+    "u2": ("H", 2),
+    "u1": ("B", 1),
+    "i8": ("q", 8),
+    "u8": ("Q", 8),
+}
+
+
+def _decode_bdata(obj):
+    """Recursively decode Plotly 6.x bdata binary arrays to plain lists."""
+    if isinstance(obj, dict):
+        if "bdata" in obj and "dtype" in obj:
+            dtype = obj["dtype"]
+            raw = base64.b64decode(obj["bdata"])
+            if dtype in _DTYPE_FMT:
+                fmt_char, size = _DTYPE_FMT[dtype]
+                n = len(raw) // size
+                return list(struct.unpack(f"<{n}{fmt_char}", raw))
+            return obj
+        return {k: _decode_bdata(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_decode_bdata(item) for item in obj]
+    return obj
 
 ROOT = Path(__file__).resolve().parent.parent
 NOTEBOOKS_DIR = ROOT / "notebooks"
@@ -87,8 +122,9 @@ def extract_outputs(nb_path: Path) -> str:
                 if "application/vnd.plotly.v1+json" in data:
                     plotly_data = data["application/vnd.plotly.v1+json"]
                     div_id = f"plotly-{uuid.uuid4().hex[:12]}"
-                    fig_json = json.dumps(plotly_data.get("data", [])).replace("</script>", r"<\/script>")
-                    layout = plotly_data.get("layout", {})
+                    fig_data = _decode_bdata(plotly_data.get("data", []))
+                    fig_json = json.dumps(fig_data).replace("</script>", r"<\/script>")
+                    layout = _decode_bdata(plotly_data.get("layout", {}))
                     layout.setdefault("autosize", True)
                     layout_json = json.dumps(layout).replace("</script>", r"<\/script>")
                     parts.append(
