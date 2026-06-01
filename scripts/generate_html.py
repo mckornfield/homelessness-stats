@@ -2,9 +2,20 @@
 
 import base64
 import json
+import re
 import struct
 import uuid
 from pathlib import Path
+
+_CORR_RE = re.compile(
+    r"^(?P<label>.+?):\s*r=(?P<r>-?\d+\.\d+),\s*R[²2]=(?P<r2>\d+\.\d+),\s*p=(?P<p>\d+\.\d+)",
+    re.MULTILINE,
+)
+# Same pattern but embedded in Plotly chart title HTML (no line-start anchor)
+_TITLE_CORR_RE = re.compile(
+    r"r=(?P<r>-?\d+\.\d+),\s*R[²2]=(?P<r2>\d+\.\d+),\s*p=(?P<p>\d+\.\d+)"
+)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 # Plotly 6.x serializes numeric arrays as base64-encoded binary (bdata/dtype).
 # Plotly.js in the browser cannot decode this format, so we convert back to
@@ -144,11 +155,145 @@ def extract_outputs(nb_path: Path) -> str:
     return "\n".join(parts)
 
 
+def _title_label(raw_title: str) -> str:
+    """Extract a clean label from a Plotly chart title (strips HTML, takes pre-<br> part)."""
+    before_br = raw_title.split("<br>")[0]
+    return _HTML_TAG_RE.sub("", before_br).strip()
+
+
+def extract_correlations(nb_path: Path, section_label: str) -> list[dict]:
+    """Pull r / R² / p from stream print lines AND Plotly chart title subtitles."""
+    nb = json.loads(nb_path.read_text())
+    seen: set[tuple] = set()  # deduplicate (r, r2, p) across both sources
+    results = []
+
+    def _add(label, r, r2, p):
+        key = (round(r, 4), round(r2, 4), round(p, 4))
+        if key in seen:
+            return
+        seen.add(key)
+        results.append({
+            "label": label,
+            "r": r, "r2": r2, "p": p,
+            "section": section_label,
+            "notebook": nb_path.stem,
+        })
+
+    for cell in nb.get("cells", []):
+        if cell["cell_type"] != "code":
+            continue
+        for output in cell.get("outputs", []):
+            otype = output.get("output_type", "")
+
+            # Stream print lines: "Label: r=X, R²=X, p=X"
+            if otype == "stream":
+                text = "".join(output.get("text", []))
+                for m in _CORR_RE.finditer(text):
+                    _add(m.group("label").strip(),
+                         float(m.group("r")), float(m.group("r2")), float(m.group("p")))
+
+            # Plotly chart titles: extract from layout.title.text
+            elif otype in ("display_data", "execute_result"):
+                data = output.get("data", {})
+                plotly = data.get("application/vnd.plotly.v1+json", {})
+                if not plotly:
+                    continue
+                raw_title = ""
+                title_field = plotly.get("layout", {}).get("title", {})
+                if isinstance(title_field, dict):
+                    raw_title = title_field.get("text", "")
+                elif isinstance(title_field, str):
+                    raw_title = title_field
+                if not raw_title:
+                    continue
+                m = _TITLE_CORR_RE.search(raw_title)
+                if m:
+                    _add(_title_label(raw_title),
+                         float(m.group("r")), float(m.group("r2")), float(m.group("p")))
+
+    return results
+
+
+def build_correlation_summary(sections: list) -> str:
+    """Build a ranked HTML table of all correlations across all notebooks."""
+    all_corrs = []
+    for section_label, notebooks in sections:
+        for nb_name in notebooks:
+            nb_path = NOTEBOOKS_DIR / nb_name
+            if nb_path.exists():
+                all_corrs.extend(extract_correlations(nb_path, section_label))
+
+    if not all_corrs:
+        return "<p><em>No correlation data found — run notebooks first.</em></p>"
+
+    all_corrs.sort(key=lambda c: abs(c["r"]), reverse=True)
+
+    rows = []
+    for i, c in enumerate(all_corrs, 1):
+        r, r2, p = c["r"], c["r2"], c["p"]
+        if p < 0.001:
+            sig, sig_color = "***", "#1a6632"
+        elif p < 0.01:
+            sig, sig_color = "**", "#1a6632"
+        elif p < 0.05:
+            sig, sig_color = "*", "#856404"
+        else:
+            sig, sig_color = "ns", "#999"
+
+        abs_r = abs(r)
+        if abs_r >= 0.6:
+            row_bg = "#d4edda"
+        elif abs_r >= 0.4:
+            row_bg = "#fff3cd"
+        else:
+            row_bg = "#f8f9fa"
+
+        direction = "↑" if r >= 0 else "↓"
+        rows.append(
+            f'<tr style="background:{row_bg}">'
+            f'<td style="text-align:center;padding:6px 8px;font-weight:bold;color:#555">{i}</td>'
+            f'<td style="padding:6px 8px">{c["label"]}</td>'
+            f'<td style="text-align:center;padding:6px 8px">{direction} {r:+.3f}</td>'
+            f'<td style="text-align:center;padding:6px 8px">{r2:.3f}</td>'
+            f'<td style="text-align:center;padding:6px 8px;color:{sig_color}'
+            f';font-weight:bold">{p:.4f} {sig}</td>'
+            f'<td style="text-align:center;padding:6px 8px;font-size:0.82em;color:#666">'
+            f'{c["section"]}</td>'
+            f'</tr>\n'
+        )
+
+    th = 'style="padding:8px;text-align:left;background:#4a90d9;color:white"'
+    thc = 'style="padding:8px;text-align:center;background:#4a90d9;color:white"'
+    header = (
+        f"<tr><th {thc}>#</th><th {th}>Correlation</th>"
+        f"<th {thc}>r</th><th {thc}>R²</th>"
+        f"<th {thc}>p-value</th><th {thc}>Level</th></tr>"
+    )
+    legend = (
+        '<p style="font-size:0.8em;color:#666;margin-top:10px">'
+        "Ranked by |r|. "
+        "*** p&lt;0.001 &nbsp; ** p&lt;0.01 &nbsp; * p&lt;0.05 &nbsp; ns not significant. "
+        "↑ positive &nbsp; ↓ negative. "
+        '<span style="background:#d4edda;padding:1px 6px">|r|≥0.6</span> &nbsp;'
+        '<span style="background:#fff3cd;padding:1px 6px">0.4≤|r|&lt;0.6</span> &nbsp;'
+        '<span style="background:#f8f9fa;padding:1px 6px">|r|&lt;0.4</span>'
+        "</p>"
+    )
+    return (
+        f'<table style="width:100%;border-collapse:collapse;font-size:0.9em">'
+        f"<thead>{header}</thead>"
+        f'<tbody>{"".join(rows)}</tbody>'
+        f"</table>{legend}"
+    )
+
+
 def build_html(sections: list) -> str:
     nav_items = "".join(
         f'<li><a href="#section-{i}">{title}</a></li>'
         for i, (title, _) in enumerate(sections)
     )
+    nav_items += '<li><a href="#section-summary">Correlation Rankings</a></li>'
+
     content_blocks = []
     for i, (title, notebooks) in enumerate(sections):
         block = f'<section id="section-{i}"><h2>{title}</h2>'
@@ -160,6 +305,16 @@ def build_html(sections: list) -> str:
             block += extract_outputs(nb_path)
         block += "</section>"
         content_blocks.append(block)
+
+    summary_html = build_correlation_summary(sections)
+    content_blocks.append(
+        '<section id="section-summary">'
+        "<h2>Correlation Rankings</h2>"
+        "<p>All pairwise correlations against homeless rate (or unsheltered %) across "
+        "state, county/CoC, and city levels, ranked by strength of correlation.</p>"
+        + summary_html
+        + "</section>"
+    )
 
     content = "\n".join(content_blocks)
     plotly_cdn = "https://cdn.plot.ly/plotly-latest.min.js"
