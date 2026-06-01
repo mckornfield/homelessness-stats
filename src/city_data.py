@@ -18,7 +18,7 @@ from county_data import _COC_DATA, _COC_COLS, _SAMHSA_STATE
 _COC_CENTROIDS = {
     "CA-600": (34.05, -118.24),  "CA-601": (32.72, -117.15),
     "CA-500": (38.58, -121.49),  "CA-502": (37.80, -122.27),
-    "CA-501": (37.77, -122.42),  "CA-503": (38.58, -121.49),
+    "CA-501": (37.77, -122.42),
     "CA-516": (36.74, -119.77),  "CA-511": (34.15, -118.14),
     "CA-522": (40.80, -124.16),  "CA-526": (37.90, -122.04),
     "CA-524": (38.68, -121.82),  "CA-606": (33.77, -118.19),
@@ -80,7 +80,7 @@ _COC_CENTROIDS = {
 # Primary city name for each CoC (for chart labeling)
 _COC_CITY_NAMES = {
     "CA-600": "Los Angeles", "CA-601": "San Diego", "CA-500": "Sacramento",
-    "CA-502": "Oakland", "CA-501": "San Francisco", "CA-503": "Sacramento",
+    "CA-502": "Oakland", "CA-501": "San Francisco",
     "CA-516": "Fresno", "CA-511": "Pasadena", "CA-522": "Eureka",
     "CA-526": "Contra Costa", "CA-524": "Woodland", "CA-606": "Long Beach",
     "CA-612": "Glendale", "CA-614": "San Jose", "CA-608": "Riverside",
