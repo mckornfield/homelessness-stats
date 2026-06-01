@@ -14,6 +14,7 @@ dependencies = [
     "papermill>=2.6.0",
     "nbconvert>=7.0.0",
     "scipy>=1.13.0",
+    "statsmodels>=0.14.0",
 ]
 
 [build-system]
