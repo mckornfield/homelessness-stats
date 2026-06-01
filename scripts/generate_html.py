@@ -51,19 +51,29 @@ def extract_outputs(nb_path: Path) -> str:
         if cell["cell_type"] == "markdown":
             source = "".join(cell.get("source", []))
             html_lines = []
+            in_list = False
             for line in source.split("\n"):
-                if line.startswith("### "):
-                    html_lines.append(f"<h4>{line[4:]}</h4>")
-                elif line.startswith("## "):
-                    html_lines.append(f"<h3>{line[3:]}</h3>")
-                elif line.startswith("# "):
-                    html_lines.append(f"<h3>{line[2:]}</h3>")
-                elif line.startswith("**") and line.endswith("**"):
-                    html_lines.append(f"<p><strong>{line[2:-2]}</strong></p>")
-                elif line.startswith("- "):
+                if line.startswith("- "):
+                    if not in_list:
+                        html_lines.append("<ul>")
+                        in_list = True
                     html_lines.append(f"<li>{line[2:]}</li>")
-                elif line.strip():
-                    html_lines.append(f"<p>{line}</p>")
+                else:
+                    if in_list:
+                        html_lines.append("</ul>")
+                        in_list = False
+                    if line.startswith("### "):
+                        html_lines.append(f"<h4>{line[4:]}</h4>")
+                    elif line.startswith("## "):
+                        html_lines.append(f"<h3>{line[3:]}</h3>")
+                    elif line.startswith("# "):
+                        html_lines.append(f"<h2>{line[2:]}</h2>")
+                    elif line.startswith("**") and line.endswith("**") and len(line) > 4:
+                        html_lines.append(f"<p><strong>{line[2:-2]}</strong></p>")
+                    elif line.strip():
+                        html_lines.append(f"<p>{line}</p>")
+            if in_list:
+                html_lines.append("</ul>")
             parts.append("\n".join(html_lines))
             continue
 
@@ -77,10 +87,10 @@ def extract_outputs(nb_path: Path) -> str:
                 if "application/vnd.plotly.v1+json" in data:
                     plotly_data = data["application/vnd.plotly.v1+json"]
                     div_id = f"plotly-{uuid.uuid4().hex[:12]}"
-                    fig_json = json.dumps(plotly_data.get("data", []))
+                    fig_json = json.dumps(plotly_data.get("data", [])).replace("</script>", r"<\/script>")
                     layout = plotly_data.get("layout", {})
                     layout.setdefault("autosize", True)
-                    layout_json = json.dumps(layout)
+                    layout_json = json.dumps(layout).replace("</script>", r"<\/script>")
                     parts.append(
                         f'<div id="{div_id}" style="width:100%;height:500px;"></div>\n'
                         f"<script>Plotly.newPlot('{div_id}', {fig_json}, {layout_json}, "
