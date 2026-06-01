@@ -156,7 +156,7 @@ def build_html(sections: list) -> str:
 
 def main():
     html = build_html(SECTIONS)
-    out = DOCS_DIR / "report.html"
+    out = DOCS_DIR / "index.html"
     out.write_text(html)
     print(f"Report written to {out}")
     print(f"Size: {len(html):,} bytes")
