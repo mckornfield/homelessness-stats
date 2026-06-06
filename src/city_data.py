@@ -11,7 +11,7 @@ Sources:
 """
 
 import pandas as pd
-from county_data import _COC_DATA, _COC_COLS, _SAMHSA_STATE
+from county_data import _COC_DATA, _COC_COLS, _SAMHSA_STATE, _ELECTION_COUNTY_2020
 
 # CoC centroid coordinates (lat, lon) for major CoCs
 # Source: HUD CoC shapefiles (https://www.hudexchange.info/programs/coc/gis-tools/)
@@ -140,6 +140,8 @@ def get_city_data() -> pd.DataFrame:
     df["ami_pct"] = df["state_postal"].map(lambda s: _SAMHSA_STATE.get(s, (None,None,None))[0])
     df["drug_disorder_pct"] = df["state_postal"].map(lambda s: _SAMHSA_STATE.get(s, (None,None,None))[1])
     df["overdose_rate_per_100k"] = df["state_postal"].map(lambda s: _SAMHSA_STATE.get(s, (None,None,None))[2])
+    df["biden_pct_2020"] = df["county_fips"].map(_ELECTION_COUNTY_2020)
+    df["dem_pres_margin_2020"] = (df["biden_pct_2020"] * 2 - 100).round(1)
     return df
 
 

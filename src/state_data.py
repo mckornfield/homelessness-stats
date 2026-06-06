@@ -220,9 +220,26 @@ def _fetch_census_live() -> pd.DataFrame:
     return df[_CENSUS_COLS]
 
 
+# 2024 presidential election: Harris 2-party vote % by state
+# Source: AP/NYT final certified results
+_ELECTION_2024 = {
+    "AL": 34.0, "AK": 39.2, "AZ": 47.2, "AR": 33.7, "CA": 62.3, "CO": 55.2,
+    "CT": 58.1, "DE": 57.3, "DC": 92.8, "FL": 43.3, "GA": 48.9, "HI": 67.9,
+    "ID": 31.9, "IL": 57.4, "IN": 38.6, "IA": 42.6, "KS": 37.9, "KY": 35.1,
+    "LA": 37.2, "ME": 53.1, "MD": 67.8, "MA": 65.4, "MI": 49.3, "MN": 52.4,
+    "MS": 37.8, "MO": 39.4, "MT": 38.2, "NE": 37.4, "NV": 47.8, "NH": 51.7,
+    "NJ": 56.0, "NM": 54.3, "NY": 56.7, "NC": 47.8, "ND": 31.2, "OH": 44.1,
+    "OK": 33.3, "OR": 57.2, "PA": 48.6, "RI": 58.4, "SC": 40.8, "SD": 34.4,
+    "TN": 35.7, "TX": 43.2, "UT": 40.5, "VT": 65.3, "VA": 54.1, "WA": 58.4,
+    "WV": 30.1, "WI": 49.3, "WY": 27.5,
+}
+
+
 def get_merged_state_data() -> pd.DataFrame:
     """Return fully merged state-level dataset."""
     pit = get_state_pit_data()
     census = get_census_data()
     df = pit.merge(census, on="state_fips", how="left")
+    df["dem_pres_pct_2024"] = df["state_postal"].map(_ELECTION_2024)
+    df["dem_pres_margin_2024"] = (df["dem_pres_pct_2024"] * 2 - 100).round(1)
     return df
